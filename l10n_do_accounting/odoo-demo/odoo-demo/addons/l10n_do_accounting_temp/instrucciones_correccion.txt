@@ -1,0 +1,21 @@
+INSTRUCCIONES PARA CORREGIR:
+
+1. EN LÍNEA ~249: _compute_l10n_do_enable_first_sequence
+   - Este método probablemente depende de campos como:
+     * l10n_latam_document_type_id
+     * journal_id
+     * company_id
+   - Debe tener: @api.depends("l10n_latam_document_type_id", "journal_id")
+
+2. EN LÍNEA ~297: _compute_is_ecf_invoice
+   - Este método probablemente depende de:
+     * l10n_latam_document_type_id
+     * company_id.l10n_do_ecf_issuer
+   - Debe tener: @api.depends("l10n_latam_document_type_id", "company_id")
+
+PARA EDITAR:
+1. Abre el archivo en un editor: models/account_move.py
+2. Busca "def _compute_l10n_do_enable_first_sequence"
+3. Añade arriba: @api.depends("l10n_latam_document_type_id", "journal_id")
+4. Busca "def _compute_is_ecf_invoice"
+5. Añade arriba: @api.depends("l10n_latam_document_type_id", "company_id")
