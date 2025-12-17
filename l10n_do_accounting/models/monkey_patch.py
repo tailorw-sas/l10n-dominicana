@@ -1,11 +1,14 @@
 from odoo import models, api
+import logging
+
+_logger = logging.getLogger(__name__)
 
 
 class AccountMove(models.Model):
     _inherit = "account.move"
 
     @api.depends(
-        "posted_before", "state", "journal_id", "date", "move_type", "payment_id"
+        "posted_before", "state", "journal_id", "date", "move_type", "origin_payment_id"
     )
     def _compute_name(self):
         self = self.sorted(lambda m: (m.date, m.ref or "", m._origin.id))
@@ -34,12 +37,17 @@ class AccountMove(models.Model):
         self.filtered(lambda m: not m.name and not move.quick_edit_mode).name = "/"
         self._inverse_name()
 
-        for move in self.filtered(
+        do_moves_without_ncf = self.filtered(
             lambda x: x.country_code == "DO"
             and x.l10n_latam_document_type_id
             and not x.l10n_latam_manual_document_number
             and not x.l10n_do_enable_first_sequence
             and x.state == "posted"
             and not x.l10n_do_fiscal_number
-        ):
+        )
+        
+        _logger.warning("NCF Generation Check: %d moves need NCF", len(do_moves_without_ncf))
+        for move in do_moves_without_ncf:
+            _logger.warning("Generating NCF for move %s (ID=%s, doc_type=%s)", 
+                           move.name, move.id, move.l10n_latam_document_type_id.name)
             move.with_context(is_l10n_do_seq=True)._set_next_sequence()

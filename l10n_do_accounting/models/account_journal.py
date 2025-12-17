@@ -227,3 +227,97 @@ class AccountJournalDocumentType(models.Model):
     company_id = fields.Many2one(
         string="Company", related="journal_id.company_id", readonly=True
     )
+    
+    # NCF Sequence Range Fields
+    sequence_start = fields.Integer(
+        string="Sequence Start",
+        default=0,
+        help="First NCF number in the authorized range (e.g., 1 for B0100000001)"
+    )
+    sequence_end = fields.Integer(
+        string="Sequence End",
+        default=0,
+        help="Last NCF number in the authorized range (e.g., 500 for B0100000500)"
+    )
+    current_sequence = fields.Integer(
+        string="Current Sequence",
+        default=0,
+        help="Next sequence number to be assigned"
+    )
+    warning_threshold = fields.Integer(
+        string="Warning at %",
+        default=80,
+        help="Show warning when this percentage of sequences have been used"
+    )
+    sequences_remaining = fields.Integer(
+        string="Remaining",
+        compute="_compute_sequence_info",
+        store=False
+    )
+    sequences_used = fields.Integer(
+        string="Used",
+        compute="_compute_sequence_info",
+        store=False
+    )
+    sequence_state = fields.Selection([
+        ('unconfigured', 'Not Configured'),
+        ('active', 'Active'),
+        ('warning', 'Low'),
+        ('exhausted', 'Exhausted'),
+    ], string="Status", compute="_compute_sequence_info", store=False)
+
+    @api.depends('sequence_start', 'sequence_end', 'current_sequence', 'warning_threshold')
+    def _compute_sequence_info(self):
+        for rec in self:
+            if rec.sequence_end <= 0:
+                rec.sequences_remaining = 0
+                rec.sequences_used = 0
+                rec.sequence_state = 'unconfigured'
+            else:
+                total = rec.sequence_end - rec.sequence_start + 1
+                current = rec.current_sequence if rec.current_sequence > 0 else rec.sequence_start
+                used = current - rec.sequence_start
+                remaining = rec.sequence_end - current + 1
+                
+                rec.sequences_used = max(0, used)
+                rec.sequences_remaining = max(0, remaining)
+                
+                if remaining <= 0:
+                    rec.sequence_state = 'exhausted'
+                elif total > 0 and (used / total * 100) >= rec.warning_threshold:
+                    rec.sequence_state = 'warning'
+                else:
+                    rec.sequence_state = 'active'
+
+    @api.constrains('sequence_start', 'sequence_end')
+    def _check_sequence_range(self):
+        for rec in self:
+            if rec.sequence_end > 0 and rec.sequence_start > rec.sequence_end:
+                raise ValidationError(
+                    _("Sequence Start cannot be greater than Sequence End for %s") 
+                    % rec.l10n_latam_document_type_id.name
+                )
+
+    def get_next_sequence(self):
+        """Get and increment the next available sequence number."""
+        self.ensure_one()
+        if self.sequence_end <= 0:
+            raise ValidationError(
+                _("NCF sequence range not configured for document type: %s. "
+                  "Please configure the sequence range in the journal settings.") 
+                % self.l10n_latam_document_type_id.name
+            )
+        
+        next_seq = self.current_sequence if self.current_sequence > 0 else self.sequence_start
+        
+        if next_seq > self.sequence_end:
+            raise ValidationError(
+                _("NCF sequences exhausted for document type: %s. "
+                  "Current: %d, Maximum: %d. Please request new NCF numbers from DGII.") 
+                % (self.l10n_latam_document_type_id.name, next_seq, self.sequence_end)
+            )
+        
+        # Increment for next use
+        self.current_sequence = next_seq + 1
+        return next_seq
+

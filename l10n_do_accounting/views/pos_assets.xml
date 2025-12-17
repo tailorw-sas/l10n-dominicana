@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Explicitly register POS assets -->
+    <record id="l10n_do_pos_order_js" model="ir.asset">
+        <field name="name">l10n_do_accounting: POS Order JS</field>
+        <field name="bundle">point_of_sale._assets_pos</field>
+        <field name="path">l10n_do_accounting/static/src/overrides/models/pos_order.js</field>
+    </record>
+    
+    <record id="l10n_do_pos_store_js" model="ir.asset">
+        <field name="name">l10n_do_accounting: POS Store JS</field>
+        <field name="bundle">point_of_sale._assets_pos</field>
+        <field name="path">l10n_do_accounting/static/src/overrides/store/pos_store.js</field>
+    </record>
+    
+    <record id="l10n_do_order_receipt_xml" model="ir.asset">
+        <field name="name">l10n_do_accounting: Order Receipt XML</field>
+        <field name="bundle">point_of_sale._assets_pos</field>
+        <field name="path">l10n_do_accounting/static/src/overrides/components/order_receipt/order_receipt.xml</field>
+    </record>
+</odoo>

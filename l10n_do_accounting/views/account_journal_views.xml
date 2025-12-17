@@ -14,12 +14,22 @@
                 <group name="document_types" string="Document Types"
                         invisible="not l10n_latam_use_documents or country_code != 'DO'">
                     <field name="l10n_do_document_type_ids" nolabel="1" colspan="2">
-                        <tree create="false" delete="false" editable="top"
+                        <list create="false" delete="false" editable="top"
                               default_order="l10n_latam_document_type_id">
                             <field name="journal_id" column_invisible="True"/>
-                            <field name="l10n_latam_document_type_id"/>
+                            <field name="l10n_latam_document_type_id" readonly="1"/>
+                            <field name="sequence_start"/>
+                            <field name="sequence_end"/>
+                            <field name="current_sequence"/>
+                            <field name="sequences_remaining" readonly="1"/>
+                            <field name="sequence_state" widget="badge" 
+                                   decoration-success="sequence_state == 'active'"
+                                   decoration-warning="sequence_state == 'warning'"
+                                   decoration-danger="sequence_state == 'exhausted'"
+                                   decoration-muted="sequence_state == 'unconfigured'"/>
                             <field name="l10n_do_ncf_expiration_date"/>
-                        </tree>
+                            <field name="warning_threshold" optional="hide"/>
+                        </list>
                     </field>
                 </group>
             </xpath>

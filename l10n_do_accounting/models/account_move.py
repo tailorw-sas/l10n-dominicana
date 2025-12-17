@@ -189,6 +189,106 @@ class AccountMove(models.Model):
             )
         return super()._auto_init()
 
+    @api.constrains('state', 'l10n_latam_document_type_id')
+    def _check_l10n_latam_documents(self):
+        """Override to provide more descriptive error messages for Dominican invoices."""
+        import logging
+        _logger = logging.getLogger(__name__)
+        
+        # Only check actual invoices/credit notes, not payment moves or journal entries
+        validated_invoices = self.filtered(
+            lambda x: x.l10n_latam_use_documents and x.state == 'posted' and x.is_invoice(include_receipts=True)
+        )
+        
+        for invoice in validated_invoices:
+            # Check if document type is missing
+            if not invoice.l10n_latam_document_type_id:
+                partner = invoice.partner_id
+                _logger.warning("NCF Debug: Invoice %s, partner_id=%s, partner.id=%s, partner.name=%s", 
+                               invoice.id, partner, partner.id if partner else None, partner.name if partner else None)
+                error_details = []
+                
+                # Check specific reasons why document type might be missing
+                if not partner or not partner.id:
+                    error_details.append(_("• No customer/vendor selected on the invoice"))
+                elif invoice.company_id.country_code == 'DO':
+                    # Check customer configuration
+                    if not partner.l10n_do_dgii_tax_payer_type:
+                        error_details.append(
+                            _("• Customer '%s' does not have a DGII Tax Payer Type configured. "
+                              "Go to Contacts → %s → Sales & Purchase tab → DGII Tax Payer Type") 
+                            % (partner.name, partner.name)
+                        )
+                    if partner.l10n_do_dgii_tax_payer_type == 'taxpayer' and not partner.vat:
+                        error_details.append(
+                            _("• Customer '%s' is marked as 'Taxpayer' but has no RNC/VAT number. "
+                              "Go to Contacts → %s → and add the RNC in the VAT field")
+                            % (partner.name, partner.name)
+                        )
+                    
+                    # Check journal configuration
+                    journal = invoice.journal_id
+                    journal_doc_types = self.env['l10n_do.account.journal.document_type'].search([
+                        ('journal_id', '=', journal.id)
+                    ])
+                    if not journal_doc_types:
+                        error_details.append(
+                            _("• Journal '%s' has no NCF document types configured. "
+                              "Go to Accounting → Configuration → Journals → %s → Document Types section")
+                            % (journal.name, journal.name)
+                        )
+                    else:
+                        # Check if any document type has sequence configured
+                        configured = journal_doc_types.filtered(lambda x: x.sequence_end > 0)
+                        if not configured:
+                            error_details.append(
+                                _("• Journal '%s' has document types but no sequence ranges configured. "
+                                  "Configure Sequence Start and Sequence End for each NCF type")
+                                % journal.name
+                            )
+                    
+                    # Check if l10n_latam_available_document_type_ids is empty
+                    if partner and not invoice.l10n_latam_available_document_type_ids:
+                        # Try to get the NCF types that should be available
+                        try:
+                            ncf_types = journal._get_journal_ncf_types(
+                                counterpart_partner=partner.commercial_partner_id, 
+                                invoice=invoice
+                            )
+                            if not ncf_types:
+                                error_details.append(
+                                    _("• No NCF types available for customer '%s' with tax payer type '%s'. "
+                                      "Check the journal document types configuration.")
+                                    % (partner.name, partner.l10n_do_dgii_tax_payer_type or 'not set')
+                                )
+                        except Exception as e:
+                            error_details.append(
+                                _("• Error determining NCF type: %s") % str(e)
+                            )
+                
+                if error_details:
+                    raise ValidationError(
+                        _("Cannot create fiscal invoice for '%s'. The following issues were found:\n\n%s")
+                        % (partner.name if partner else 'Unknown', "\n".join(error_details))
+                    )
+                else:
+                    raise ValidationError(
+                        _("The journal requires a document type but none could be determined for invoice %s (Customer: %s). "
+                          "Please verify customer DGII Tax Payer Type and journal settings.")
+                        % (invoice.name or invoice.id, partner.name if partner else 'No customer')
+                    )
+        
+        # Check for missing document number on manual entries
+        without_number = validated_invoices.filtered(
+            lambda x: x.l10n_latam_document_type_id and not x.l10n_latam_document_number 
+            and x.l10n_latam_manual_document_number
+        )
+        if without_number:
+            raise ValidationError(
+                _("Please enter the fiscal document number (NCF) for the following invoices:\n%s")
+                % "\n".join([f"• {inv.partner_id.name or 'Unknown'} - {inv.name or 'Draft'}" for inv in without_number])
+            )
+
     @api.model
     def _name_search(self, name, domain=None, operator='ilike', limit=None, order=None):
         if name:
@@ -666,16 +766,37 @@ class AccountMove(models.Model):
         )
 
         for invoice in l10n_do_invoices.filtered(
-            lambda inv: inv.l10n_latam_document_type_id
+            lambda inv: inv.is_invoice(include_receipts=True) and inv.l10n_latam_document_type_id
         ):
             if not invoice.amount_total:
                 raise UserError(_("Fiscal invoice cannot be posted with amount zero."))
 
         non_payer_type_invoices = l10n_do_invoices.filtered(
-            lambda inv: not inv.partner_id.l10n_do_dgii_tax_payer_type
+            lambda inv: inv.is_invoice(include_receipts=True) and not inv.partner_id.l10n_do_dgii_tax_payer_type
         )
         if non_payer_type_invoices:
             raise ValidationError(_("Fiscal invoices require partner fiscal type"))
+
+        # Generate NCF after posting, before PDF generation
+        import logging
+        _logger = logging.getLogger(__name__)
+        
+        ncf_invoices = l10n_do_invoices.filtered(
+            lambda inv: inv.is_invoice(include_receipts=True)
+            and inv.l10n_latam_document_type_id
+            and not inv.l10n_latam_manual_document_number
+            and not inv.l10n_do_enable_first_sequence
+            and not inv.l10n_do_fiscal_number
+        )
+        
+        _logger.warning("NCF in _post: %d invoices need NCF", len(ncf_invoices))
+        
+        for invoice in ncf_invoices:
+            _logger.warning("Generating NCF in _post for invoice %s (ID=%s)", invoice.name, invoice.id)
+            invoice.with_context(is_l10n_do_seq=True)._set_next_sequence()
+            _logger.warning("NCF assigned: %s", invoice.l10n_do_fiscal_number)
+            # Force flush to database
+            invoice.flush_recordset(['l10n_do_fiscal_number'])
 
         return res
 
@@ -824,28 +945,34 @@ class AccountMove(models.Model):
         if not self._context.get("is_l10n_do_seq", False):
             return super(AccountMove, self)._set_next_sequence()
 
-        last_sequence = self._get_last_sequence()
-        new = not last_sequence
-        if new:
-            last_sequence = (
-                self._get_last_sequence(relaxed=True) or self._get_starting_sequence()
+        # Find the journal document type configuration for this document type
+        journal_doc_type = self.env['l10n_do.account.journal.document_type'].search([
+            ('journal_id', '=', self.journal_id.id),
+            ('l10n_latam_document_type_id', '=', self.l10n_latam_document_type_id.id),
+        ], limit=1)
+
+        if not journal_doc_type:
+            raise ValidationError(
+                _("Document type %s is not configured for journal %s. "
+                  "Please configure it in the journal settings.") 
+                % (self.l10n_latam_document_type_id.name, self.journal_id.name)
             )
 
-        format, format_values = self._get_sequence_format_param(last_sequence)
-        if new:
-            format_values["seq"] = 0
-        format_values["seq"] = format_values["seq"] + 1
-
+        # Get next sequence from configured range
+        next_seq = journal_doc_type.get_next_sequence()
+        
+        # Format the NCF number using the document type prefix
+        prefix = self.l10n_latam_document_type_id.doc_code_prefix or ''
+        # NCF format: PREFIX + 8 digit number (e.g., B0100000001)
+        ncf_number = "{prefix}{seq:08d}".format(prefix=prefix, seq=next_seq)
+        
         if (
             self.env.context.get("prefetch_seq")
             or self.state != "draft"
             and not self[self._l10n_do_sequence_field]
         ):
-            self[
-                self._l10n_do_sequence_field
-            ] = self.l10n_latam_document_type_id._format_document_number(
-                format.format(**format_values)
-            )
+            self[self._l10n_do_sequence_field] = ncf_number
+
         self._compute_split_sequence()
 
     def _get_name_invoice_report(self):

@@ -8,10 +8,10 @@
     "category": "Localization",
     "license": "LGPL-3",
     "website": "https://github.com/odoo-dominicana",
-    "version": "17.0.1.0.4",
+    "version": "18.0.1.0.0",
     "countries": ["do"],
     # any module necessary for this one to work correctly
-    "depends": ["l10n_latam_invoice_document", "l10n_do"],
+    "depends": ["l10n_latam_invoice_document", "l10n_do", "point_of_sale"],
     # always loaded
     "data": [
         "security/ir.model.access.csv",
@@ -29,6 +29,7 @@
         "views/l10n_latam_document_type_views.xml",
         "views/report_templates.xml",
         "views/report_invoice.xml",
+        "views/pos_assets.xml",
     ],
     # only loaded in demonstration mode
     "demo": [
@@ -37,4 +38,10 @@
     "installable": True,
     "auto_install": False,
     "application": False,
+    "assets": {
+        "point_of_sale._assets_pos": [
+            "l10n_do_accounting/static/src/overrides/**/*.js",
+            "l10n_do_accounting/static/src/overrides/**/*.xml",
+        ],
+    },
 }

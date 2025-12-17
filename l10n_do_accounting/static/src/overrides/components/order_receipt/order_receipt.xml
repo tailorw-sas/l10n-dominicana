@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<templates id="template" xml:space="preserve">
+    <t t-name="l10n_do_accounting.OrderReceipt" t-inherit="point_of_sale.OrderReceipt" t-inherit-mode="extension">
+        
+        <!-- Add fiscal document type title after header (like "FACTURA") -->
+        <xpath expr="//ReceiptHeader" position="after">
+            <t t-if="props.data.l10n_do_fiscal_number">
+                <div class="l10n-do-fiscal-header text-center" style="margin-top: 5px; margin-bottom: 5px;">
+                    <div class="text-center">--------------------------------</div>
+                    <div style="font-weight: bold; font-size: 13px; padding: 3px 0;">
+                        <t t-if="props.data.l10n_do_document_type">
+                            <t t-esc="props.data.l10n_do_document_type"/>
+                        </t>
+                        <t t-else="">FACTURA</t>
+                    </div>
+                    <div class="text-center">--------------------------------</div>
+                </div>
+            </t>
+        </xpath>
+        
+        <!-- Add NCF, date, order and client info section before order lines -->
+        <xpath expr="//OrderWidget" position="before">
+            <t t-if="props.data.l10n_do_fiscal_number">
+                <div class="l10n-do-ncf-section" style="font-size: 11px; margin-bottom: 8px;">
+                    <!-- NCF -->
+                    <div style="font-weight: bold;">
+                        NCF: <t t-esc="props.data.l10n_do_fiscal_number"/>
+                    </div>
+                    
+                    <!-- Fecha de Emisión -->
+                    <div>FECHA EMISIÓN: <t t-esc="props.data.date"/></div>
+                    
+                    <!-- Order Number (just the number, not duplicated) -->
+                    <div>ORDEN: <t t-esc="props.data.name.split(' - NCF:')[0].split('/').pop()"/></div>
+                    
+                    <!-- Separator before client data -->
+                    <div class="text-center" style="margin-top: 5px; margin-bottom: 3px;">--- DATOS DEL CLIENTE ---</div>
+                    
+                    <!-- Client Data -->
+                    <t t-if="props.data.client">
+                        <div>CLIENTE: <t t-esc="props.data.client.name"/></div>
+                        <t t-if="props.data.client.vat">
+                            <div>RNC/CÉDULA: <t t-esc="props.data.client.vat"/></div>
+                        </t>
+                        <t t-if="props.data.client.phone or props.data.client.mobile">
+                            <div>TEL: <t t-esc="props.data.client.phone || props.data.client.mobile"/></div>
+                        </t>
+                    </t>
+                    <t t-else="">
+                        <div>CLIENTE: CONSUMIDOR FINAL</div>
+                    </t>
+                    
+                    <!-- Separator -->
+                    <div class="text-center" style="margin-top: 5px;">--------------------------------</div>
+                </div>
+            </t>
+        </xpath>
+        
+        <!-- Replace the footer section to remove Odoo branding and duplicate data -->
+        <xpath expr="//div[hasclass('pos-receipt-order-data')]" position="replace">
+            <!-- Empty div to replace original, we'll add our own footer -->
+            <div class="pos-receipt-order-data" />
+        </xpath>
+        
+        <!-- Remove "Powered by Odoo" and order info at the bottom -->
+        <xpath expr="//p[text()='Powered by Odoo']" position="replace"/>
+        
+        <!-- Add thank you message in before-footer section -->
+        <xpath expr="//div[hasclass('before-footer')]" position="inside">
+            <t t-if="props.data.l10n_do_fiscal_number">
+                <div class="l10n-do-thank-you text-center" style="margin-top: 15px; font-size: 12px; font-weight: bold;">
+                    *** GRACIAS POR SU COMPRA ***
+                </div>
+            </t>
+        </xpath>
+        
+    </t>
+</templates>
